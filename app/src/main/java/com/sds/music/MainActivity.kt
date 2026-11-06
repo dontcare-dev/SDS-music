@@ -161,12 +161,12 @@ private fun SdsMusicApp(context: Context) {
                             TextButton(onClick = { tab = "Library" }) { Text("View all", color = Ink) }
                         }
                         if (tracks.isEmpty()) EmptyLibrary { picker.launch(arrayOf("audio/*")) }
-                        else TrackList(tracks.take(5), currentUri) { playTrack(it, tracks, player) }
+                        else TrackList(tracks.take(5), currentUri, onPlay = { playTrack(it, tracks, player) })
                     }
                     "Search" -> {
                         OutlinedTextField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth(), placeholder = { Text("Search your music") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, shape = RoundedCornerShape(18.dp), singleLine = true)
                         val filtered = tracks.filter { it.title.contains(query, ignoreCase = true) }
-                        TrackList(filtered, currentUri) { playTrack(it, tracks, player) }
+                        TrackList(filtered, currentUri, onPlay = { playTrack(it, tracks, player) })
                     }
                     "Library" -> {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
