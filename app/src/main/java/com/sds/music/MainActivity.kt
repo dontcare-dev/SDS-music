@@ -1,6 +1,7 @@
 package com.sds.music
 
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.provider.OpenableColumns
@@ -37,10 +38,11 @@ import coil.compose.AsyncImage
 import androidx.compose.ui.layout.ContentScale
 import kotlinx.coroutines.launch
 
-private val Paper = Color(0xFF121212)
-private val Ink = Color(0xFFF5F5F5)
-private val Tile = Color(0xFF242424)
-private val Accent = Color(0xFFB9B6AE)
+private val Paper = Color(0xFF101112)
+private val Ink = Color(0xFFF4F2EE)
+private val Tile = Color(0xFF1B1D1F)
+private val Accent = Color(0xFFC9C2B5)
+private val Muted = Color(0xFF96938D)
 
 data class Track(val uri: String, val title: String, val artist: String = "", val album: String = "", val year: String = "", val musicBrainzId: String = "")
 
@@ -223,10 +225,11 @@ private fun SdsMusicApp(context: Context) {
             containerColor = Paper,
             bottomBar = {
                 NavigationBar(containerColor = Color(0xFF1D1D1D), contentColor = Ink) {
-                    listOf("Home", "Search", "Library", "Player").forEach { label ->
+                    listOf("Home", "Search", "Providers", "Library", "Player").forEach { label ->
                         val icon = when (label) {
                             "Home" -> Icons.Rounded.Home
                             "Search" -> Icons.Rounded.Search
+                            "Providers" -> Icons.Rounded.Extension
                             "Library" -> Icons.Rounded.LibraryMusic
                             else -> Icons.Rounded.GraphicEq
                         }
@@ -237,17 +240,26 @@ private fun SdsMusicApp(context: Context) {
         ) { padding ->
             Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 18.dp)) {
                 Row(Modifier.fillMaxWidth().padding(top = 18.dp, bottom = 16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Column {
-                        Text("SDS-MUSIC", fontSize = 12.sp, letterSpacing = 3.sp, fontWeight = FontWeight.Bold)
-                        Text(when (tab) { "Home" -> "Discover"; "Search" -> "Search"; "Library" -> "Your library"; else -> "Now playing" }, fontSize = 25.sp, fontWeight = FontWeight.SemiBold)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(11.dp)) {
+                        Box(Modifier.size(38.dp).background(Accent, RoundedCornerShape(50)), contentAlignment = Alignment.Center) {
+                            Icon(Icons.Rounded.GraphicEq, null, tint = Paper, modifier = Modifier.size(25.dp))
+                        }
+                        Column {
+                            Text("SDS MUSIC", fontSize = 11.sp, letterSpacing = 2.8.sp, fontWeight = FontWeight.Bold, color = Muted)
+                            Text(when (tab) { "Home" -> "Discover"; "Search" -> "Search"; "Providers" -> "Providers"; "Library" -> "Your library"; else -> "Now playing" }, fontSize = 25.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                     IconButton(onClick = { picker.launch(arrayOf("audio/*")) }) { Icon(Icons.Rounded.AddCircle, "Import audio", modifier = Modifier.size(30.dp)) }
                 }
                 when (tab) {
                     "Home" -> {
-                        Row(Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 14.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Text("Made for listening", color = Ink.copy(alpha = .65f), fontSize = 14.sp)
-                            TextButton(onClick = { tab = "Library" }) { Text("Library", color = Accent) }
+                        Column(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 22.dp)) {
+                            Text("YOUR SOUND. YOUR SPACE.", color = Muted, fontSize = 10.sp, letterSpacing = 2.2.sp, fontWeight = FontWeight.Bold)
+                            Text("Find something\nto play.", color = Ink, fontSize = 30.sp, lineHeight = 35.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
+                            Row(Modifier.padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                                AssistChip(onClick = { tab = "Search" }, label = { Text("Search music") }, leadingIcon = { Icon(Icons.Rounded.Search, null, modifier = Modifier.size(16.dp)) })
+                                AssistChip(onClick = { tab = "Providers" }, label = { Text("Providers") }, leadingIcon = { Icon(Icons.Rounded.Extension, null, modifier = Modifier.size(16.dp)) })
+                            }
                         }
                         if (trending.isNotEmpty()) {
                             Text("Trending", fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 10.dp))
@@ -261,12 +273,14 @@ private fun SdsMusicApp(context: Context) {
                         }
                     }
                     "Search" -> {
+                        Text("Search across the active catalogue.", color = Muted, fontSize = 13.sp, modifier = Modifier.padding(bottom = 12.dp))
                         OutlinedTextField(
                             value = query, onValueChange = { query = it },
                             modifier = Modifier.fillMaxWidth(),
-                            placeholder = { Text("Songs, artists") },
+                            placeholder = { Text("Track or artist name") },
                             leadingIcon = { Icon(Icons.Rounded.Search, null) },
-                            shape = RoundedCornerShape(28.dp), singleLine = true
+                            shape = RoundedCornerShape(18.dp), singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Accent, cursorColor = Accent)
                         )
                         Button(onClick = { searchAudius() }, enabled = query.isNotBlank() && !onlineLoading, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
                             if (onlineLoading) CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
@@ -276,6 +290,9 @@ private fun SdsMusicApp(context: Context) {
                         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 8.dp)) {
                             items(audiusResults, key = { it.id }) { track -> AudiusTrackRow(track, onClick = { playAudius(track) }) }
                         }
+                    }
+                    "Providers" -> {
+                        ProvidersScreen(context)
                     }
                     "Library" -> {
                         if (selectedImportedPlaylist != null) {
@@ -429,9 +446,9 @@ private fun AudiusTrackRow(track: AudiusTrack, onClick: () -> Unit) {
         }
         Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
             Text(track.title, color = Ink, fontWeight = FontWeight.SemiBold, maxLines = 1)
-            Text(track.artist, color = Ink.copy(alpha = .6f), fontSize = 12.sp, maxLines = 1)
+            Text(track.artist, color = Muted, fontSize = 12.sp, maxLines = 1)
         }
-        Text("▶", color = Accent, modifier = Modifier.padding(horizontal = 8.dp))
+        Icon(Icons.Rounded.PlayArrow, "Play", tint = Accent, modifier = Modifier.padding(horizontal = 8.dp))
     }
 }
 
@@ -473,4 +490,59 @@ private fun EmptyLibrary(onImport: () -> Unit) {
 private fun timeLabel(ms: Long): String {
     val seconds = (ms / 1000).coerceAtLeast(0)
     return "%d:%02d".format(seconds / 60, seconds % 60)
+}
+ 
+@Composable
+private fun ProvidersScreen(context: Context) {
+    Column(Modifier.fillMaxSize()) {
+        Text("Connect your music apps", color = Ink, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
+        Text("Open services installed on this device. Each service keeps its own sign-in and playback controls.", color = Muted, fontSize = 13.sp, lineHeight = 19.sp, modifier = Modifier.padding(top = 6.dp, bottom = 18.dp))
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
+            item { ProviderCard("Audius", "Built in · Stream open-catalogue tracks inside SDS-Music.", null, "audius") }
+            item { ProviderCard("YouTube Music", "Open YouTube Music on this device. Playback and account features stay in its official app.", "com.google.android.apps.youtube.music", "youtube") }
+            item { ProviderCard("JioSaavn", "Open JioSaavn on this device. Sign in and listen through the official app.", "com.jio.media.jiobeats", "saavn") }
+            item { ProviderCard("Spotify", "Open Spotify on this device. Your subscription and playback stay managed by Spotify.", "com.spotify.music", "spotify") }
+            item {
+                Text("About providers", color = Accent, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
+                Text("SDS-Music currently streams Audius tracks natively. Other providers are app shortcuts for now; they are not downloaded or extracted into SDS-Music.", color = Muted, fontSize = 12.sp, lineHeight = 18.sp, modifier = Modifier.padding(top = 5.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProviderCard(name: String, description: String, packageName: String?, kind: String) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val installed = packageName == null || runCatching {
+        context.packageManager.getPackageInfo(packageName, 0)
+    }.isSuccess
+    Row(Modifier.fillMaxWidth().background(Tile, RoundedCornerShape(20.dp)).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(48.dp).background(Color(0xFF292B2D), RoundedCornerShape(15.dp)), contentAlignment = Alignment.Center) {
+            Icon(when (kind) {
+                "youtube" -> Icons.Rounded.PlayCircle
+                "saavn" -> Icons.Rounded.LibraryMusic
+                "spotify" -> Icons.Rounded.GraphicEq
+                else -> Icons.Rounded.GraphicEq
+            }, null, tint = Accent, modifier = Modifier.size(26.dp))
+        }
+        Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+            Text(name, color = Ink, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            Text(if (packageName == null) "Available in SDS-Music" else if (installed) "Installed on this device" else "Not installed", color = if (installed) Accent else Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 2.dp))
+            Text(description, color = Muted, fontSize = 11.sp, lineHeight = 15.sp, modifier = Modifier.padding(top = 5.dp))
+        }
+        if (packageName != null) {
+            TextButton(onClick = {
+                val launch = context.packageManager.getLaunchIntentForPackage(packageName)
+                if (launch != null) context.startActivity(launch)
+                else {
+                    val market = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$packageName"))
+                    runCatching { context.startActivity(market) }.onFailure {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=$packageName")))
+                    }
+                }
+            }) { Text(if (installed) "Open" else "Get", color = Accent, fontWeight = FontWeight.Bold) }
+        } else {
+            Text("READY", color = Accent, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        }
+    }
 }
