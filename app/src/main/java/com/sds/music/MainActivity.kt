@@ -141,7 +141,7 @@ private fun SdsMusicApp(context: Context) {
             override fun onIsPlayingChanged(isPlaying: Boolean) { playing = isPlaying }
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 currentUri = mediaItem?.localConfiguration?.uri?.toString()
-                currentTitle = tracks.firstOrNull { it.uri == currentUri }?.title ?: "Unknown track"
+                currentTitle = tracks.firstOrNull { it.uri == currentUri }?.title ?: currentTitle
             }
         }
         player.addListener(listener)
