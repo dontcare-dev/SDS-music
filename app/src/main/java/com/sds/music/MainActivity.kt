@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.Bundle
 import android.provider.OpenableColumns
+import android.media.MediaMetadataRetriever
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -75,11 +76,49 @@ private fun displayName(context: Context, uri: Uri): String {
     }.getOrNull()?.substringBeforeLast('.') ?: (uri.lastPathSegment ?: "Untitled audio")
 }
 
+private fun readLocalMetadata(context: Context, uri: Uri): Track {
+    val fallback = displayName(context, uri)
+    val retriever = MediaMetadataRetriever()
+    return try {
+        retriever.setDataSource(context, uri)
+        Track(uri = uri.toString(),
+            title = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE)?.takeIf { it.isNotBlank() } ?: fallback,
+            artist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST).orEmpty(),
+            album = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM).orEmpty(),
+            year = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_YEAR).orEmpty())
+    } catch (_: Exception) { Track(uri.toString(), fallback) }
+    finally { runCatching { retriever.release() } }
+}
+
+private fun readImportedPlaylists(context: Context): List<ImportedPlaylist> = runCatching {
+    val raw = context.getSharedPreferences("sds_music", Context.MODE_PRIVATE).getString("imported_playlists", "[]") ?: "[]"
+    val array = JSONArray(raw)
+    (0 until array.length()).map { i ->
+        val item = array.getJSONObject(i)
+        val songs = item.optJSONArray("songs") ?: JSONArray()
+        ImportedPlaylist(item.optString("name"), item.optString("source"), (0 until songs.length()).mapNotNull { j ->
+            songs.optJSONObject(j)?.let { ImportedSong(it.optString("title"), it.optString("artist"), it.optString("album")) }
+        })
+    }
+}.getOrDefault(emptyList())
+
+private fun saveImportedPlaylists(context: Context, playlists: List<ImportedPlaylist>) {
+    val array = JSONArray()
+    playlists.forEach { playlist ->
+        val songs = JSONArray()
+        playlist.songs.forEach { songs.put(JSONObject().put("title", it.title).put("artist", it.artist).put("album", it.album)) }
+        array.put(JSONObject().put("name", playlist.name).put("source", playlist.source).put("songs", songs))
+    }
+    context.getSharedPreferences("sds_music", Context.MODE_PRIVATE).edit().putString("imported_playlists", array.toString()).apply()
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SdsMusicApp(context: Context) {
     val player = remember { ExoPlayer.Builder(context).build() }
     var tracks by remember { mutableStateOf(readTracks(context)) }
+    var importedPlaylists by remember { mutableStateOf(readImportedPlaylists(context)) }
+    var importMessage by remember { mutableStateOf<String?>(null) }
     var tab by remember { mutableStateOf("Home") }
     var currentUri by remember { mutableStateOf<String?>(null) }
     var currentTitle by remember { mutableStateOf("Nothing playing") }
@@ -123,11 +162,27 @@ private fun SdsMusicApp(context: Context) {
         tab = "Player"
     }
 
+    val playlistPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            runCatching {
+                val filename = context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                    if (c.moveToFirst()) c.getString(0) else "import.json"
+                } ?: "import.json"
+                val content = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                    ?: error("Couldn't read that file.")
+                val imported = LibraryImportParser.parse(content, filename)
+                importedPlaylists = importedPlaylists + imported
+                saveImportedPlaylists(context, importedPlaylists)
+                importMessage = "Imported " + imported.songs.size + " songs from " + imported.source + "."
+            }.onFailure { importMessage = it.message ?: "Couldn't import this file." }
+        }
+    }
+
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         val additions = uris.mapNotNull { uri ->
             runCatching {
                 context.contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                Track(uri.toString(), displayName(context, uri))
+                readLocalMetadata(context, uri)
             }.getOrNull()
         }
         if (additions.isNotEmpty()) {
@@ -218,9 +273,23 @@ private fun SdsMusicApp(context: Context) {
                     }
                     "Library" -> {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Text("${tracks.size} tracks", color = Ink.copy(alpha = .7f))
-                            TextButton(onClick = { picker.launch(arrayOf("audio/*")) }) { Text("＋ Import", color = Ink) }
+                            Text("Your music", color = Ink.copy(alpha = .7f))
+                            Row {
+                                TextButton(onClick = { playlistPicker.launch(arrayOf("text/*", "application/json", "text/csv")) }) { Text("Import playlist", color = Accent) }
+                                TextButton(onClick = { picker.launch(arrayOf("audio/*")) }) { Text("＋ Audio", color = Ink) }
+                            }
                         }
+                        importMessage?.let { Text(it, color = Accent, fontSize = 12.sp) }
+                        importedPlaylists.forEach { playlist ->
+                            Row(Modifier.fillMaxWidth().background(Tile, RoundedCornerShape(12.dp)).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Rounded.QueueMusic, null, tint = Accent)
+                                Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                                    Text(playlist.name, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                                    Text(playlist.songs.size.toString() + " songs · " + playlist.source, color = Ink.copy(alpha = .6f), fontSize = 11.sp)
+                                }
+                            }
+                        }
+                        Text(tracks.size.toString() + " files on this device", color = Ink.copy(alpha = .6f), fontSize = 12.sp, modifier = Modifier.padding(vertical = 8.dp))
                         if (tracks.isEmpty()) EmptyLibrary { picker.launch(arrayOf("audio/*")) }
                         else TrackList(tracks, currentUri, onPlay = { playTrack(it, tracks, player) }, onRemove = { track ->
                             tracks = tracks.filterNot { it.uri == track.uri }
