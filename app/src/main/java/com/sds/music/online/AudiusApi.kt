@@ -47,11 +47,25 @@ object AudiusApi {
             if (id.isBlank()) return@mapNotNull null
             val art = item.optJSONObject("artwork")
             val image = art?.optString("480x480")?.takeIf { it.startsWith("http") }
-                ?: art?.optString("150x150")?.takeIf { it.startsWith("http") }.orEmpty()
+                ?: art?.optString("150x150")?.takeIf { it.startsWith("http") }
+                ?: item.optString("cover_art").takeIf { it.startsWith("http") }
+                ?: ""
+            val user = item.optJSONObject("user")
+            val artistArray = item.optJSONArray("artists")
+            val creditedArtist = artistArray?.optJSONObject(0)?.let { credited ->
+                firstMeaningful(credited.optString("name"), credited.optString("artist_name"))
+            }
+            val artist = firstMeaningful(
+                item.optString("artist_name"),
+                creditedArtist,
+                user?.optString("name"),
+                user?.optString("handle"),
+                item.optString("artist")
+            ) ?: "Artist profile unavailable"
             AudiusTrack(
                 id = id,
-                title = item.optString("title", "Untitled"),
-                artist = item.optString("artist_name", "Unknown artist"),
+                title = firstMeaningful(item.optString("title")) ?: "Untitled",
+                artist = artist,
                 artwork = image,
                 durationSeconds = item.optInt("duration"),
                 genre = item.optString("genre"),
@@ -60,13 +74,16 @@ object AudiusApi {
         }
     }
 
+    private fun firstMeaningful(vararg values: String?): String? =
+        values.firstOrNull { !it.isNullOrBlank() && it != "null" && it != "Unknown artist" }?.trim()
+
     suspend fun trending(): List<AudiusTrack> =
-        parseTracks(request("/tracks/trending?time=week&limit=30"))
+        parseTracks(request("/tracks/trending?time=week&limit=30")).distinctBy { it.id }
 
     suspend fun search(query: String): List<AudiusTrack> {
         require(query.isNotBlank()) { "Type a song or artist to search." }
         val encoded = URLEncoder.encode(query.trim(), "UTF-8")
-        return parseTracks(request("/tracks/search?query=$encoded&limit=20&sort_method=popular"))
+        return parseTracks(request("/tracks/search?query=$encoded&limit=20&sort_method=popular")).distinctBy { it.id }
     }
 
     fun streamUrl(trackId: String): String = "$BASE/tracks/$trackId/stream"
