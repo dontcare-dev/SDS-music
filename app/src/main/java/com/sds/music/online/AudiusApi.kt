@@ -66,7 +66,7 @@ object AudiusApi {
     suspend fun search(query: String): List<AudiusTrack> {
         require(query.isNotBlank()) { "Type a song or artist to search." }
         val encoded = URLEncoder.encode(query.trim(), "UTF-8")
-        return parseTracks(request("/tracks/search?query=$encoded&limit=30&sort_method=relevant"))
+        return parseTracks(request("/tracks/search?query=$encoded&limit=20&sort_method=popular"))
     }
 
     fun streamUrl(trackId: String): String = "$BASE/tracks/$trackId/stream"
