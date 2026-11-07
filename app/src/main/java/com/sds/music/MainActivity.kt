@@ -32,11 +32,6 @@ import androidx.media3.exoplayer.ExoPlayer
 import kotlinx.coroutines.delay
 import org.json.JSONArray
 import org.json.JSONObject
-import com.sds.music.online.AudiusApi
-import com.sds.music.online.AudiusTrack
-import coil.compose.AsyncImage
-import androidx.compose.ui.layout.ContentScale
-import kotlinx.coroutines.launch
 
 private val Paper = Color(0xFF101112)
 private val Ink = Color(0xFFF4F2EE)
@@ -138,39 +133,7 @@ private fun SdsMusicApp(context: Context) {
     var loopB by remember { mutableLongStateOf(0L) }
     var loopEnabled by remember { mutableStateOf(false) }
     var showLoop by remember { mutableStateOf(false) }
-    var audiusResults by remember { mutableStateOf<List<AudiusTrack>>(emptyList()) }
-    var trending by remember { mutableStateOf<List<AudiusTrack>>(emptyList()) }
-    var onlineLoading by remember { mutableStateOf(false) }
-    var onlineError by remember { mutableStateOf<String?>(null) }
-    val scope = rememberCoroutineScope()
-
-    LaunchedEffect(Unit) {
-        onlineLoading = true
-        try { trending = AudiusApi.trending() }
-        catch (error: Exception) { onlineError = error.message ?: "Couldn't load music." }
-        finally { onlineLoading = false }
-    }
-
-    fun searchAudius() {
-        scope.launch {
-            onlineLoading = true
-            onlineError = null
-            try { audiusResults = AudiusApi.search(query) }
-            catch (error: Exception) { onlineError = error.message ?: "Search failed." }
-            finally { onlineLoading = false }
-        }
-    }
-
-    fun playAudius(track: AudiusTrack) {
-        player.setMediaItem(MediaItem.fromUri(AudiusApi.streamUrl(track.id)))
-        player.prepare()
-        player.play()
-        currentUri = AudiusApi.streamUrl(track.id)
-        currentTitle = track.title
-        tab = "Player"
-    }
-
-    val playlistPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        val playlistPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             runCatching {
                 val filename = context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
@@ -225,11 +188,11 @@ private fun SdsMusicApp(context: Context) {
             containerColor = Paper,
             bottomBar = {
                 NavigationBar(containerColor = Color(0xFF1D1D1D), contentColor = Ink) {
-                    listOf("Home", "Search", "Providers", "Library", "Player").forEach { label ->
+                    listOf("Home", "Search", "YouTube Music", "Library", "Player").forEach { label ->
                         val icon = when (label) {
                             "Home" -> Icons.Rounded.Home
                             "Search" -> Icons.Rounded.Search
-                            "Providers" -> Icons.Rounded.Extension
+                            "YouTube Music" -> Icons.Rounded.PlayCircle
                             "Library" -> Icons.Rounded.LibraryMusic
                             else -> Icons.Rounded.GraphicEq
                         }
@@ -246,7 +209,7 @@ private fun SdsMusicApp(context: Context) {
                         }
                         Column {
                             Text("SDS MUSIC", fontSize = 11.sp, letterSpacing = 2.8.sp, fontWeight = FontWeight.Bold, color = Muted)
-                            Text(when (tab) { "Home" -> "Discover"; "Search" -> "Search"; "Providers" -> "Providers"; "Library" -> "Your library"; else -> "Now playing" }, fontSize = 25.sp, fontWeight = FontWeight.Bold)
+                            Text(when (tab) { "Home" -> "Discover"; "Search" -> "Search"; "YouTube Music" -> "YouTube Music"; "Library" -> "Your library"; else -> "Now playing" }, fontSize = 25.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                     IconButton(onClick = { picker.launch(arrayOf("audio/*")) }) { Icon(Icons.Rounded.AddCircle, "Import audio", modifier = Modifier.size(30.dp)) }
@@ -255,44 +218,37 @@ private fun SdsMusicApp(context: Context) {
                     "Home" -> {
                         Column(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 22.dp)) {
                             Text("YOUR SOUND. YOUR SPACE.", color = Muted, fontSize = 10.sp, letterSpacing = 2.2.sp, fontWeight = FontWeight.Bold)
-                            Text("Find something\nto play.", color = Ink, fontSize = 30.sp, lineHeight = 35.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
+                            Text("Your music,\nyour way.", color = Ink, fontSize = 30.sp, lineHeight = 35.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
+                            Text(tracks.size.toString() + " tracks in your local library", color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp))
                             Row(Modifier.padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                                AssistChip(onClick = { tab = "Search" }, label = { Text("Search music") }, leadingIcon = { Icon(Icons.Rounded.Search, null, modifier = Modifier.size(16.dp)) })
-                                AssistChip(onClick = { tab = "Providers" }, label = { Text("Providers") }, leadingIcon = { Icon(Icons.Rounded.Extension, null, modifier = Modifier.size(16.dp)) })
+                                AssistChip(onClick = { tab = "Search" }, label = { Text("Search library") }, leadingIcon = { Icon(Icons.Rounded.Search, null, modifier = Modifier.size(16.dp)) })
+                                AssistChip(onClick = { tab = "YouTube Music" }, label = { Text("YouTube Music") }, leadingIcon = { Icon(Icons.Rounded.PlayCircle, null, modifier = Modifier.size(16.dp)) })
                             }
                         }
-                        if (trending.isNotEmpty()) {
-                            Text("Trending", fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 10.dp))
-                            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 16.dp)) {
-                                items(trending, key = { it.id }) { track -> AudiusTrackRow(track, onClick = { playAudius(track) }) }
-                            }
-                        } else if (onlineLoading) {
-                            Box(Modifier.fillMaxWidth().padding(36.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Accent) }
-                        } else {
-                            Text(onlineError ?: "No tracks available right now.", color = Ink.copy(alpha = .65f))
-                        }
+                        Text("Recently added", fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 10.dp))
+                        if (tracks.isEmpty()) EmptyLibrary { picker.launch(arrayOf("audio/*")) }
+                        else TrackList(tracks.takeLast(8).reversed(), currentUri, onPlay = { playTrack(it, tracks, player) })
                     }
                     "Search" -> {
-                        Text("Search across the active catalogue.", color = Muted, fontSize = 13.sp, modifier = Modifier.padding(bottom = 12.dp))
+                        Text("Search tracks saved on this device.", color = Muted, fontSize = 13.sp, modifier = Modifier.padding(bottom = 12.dp))
                         OutlinedTextField(
                             value = query, onValueChange = { query = it },
                             modifier = Modifier.fillMaxWidth(),
-                            placeholder = { Text("Track or artist name") },
+                            placeholder = { Text("Track, artist or album") },
                             leadingIcon = { Icon(Icons.Rounded.Search, null) },
                             shape = RoundedCornerShape(18.dp), singleLine = true,
                             colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Accent, cursorColor = Accent)
                         )
-                        Button(onClick = { searchAudius() }, enabled = query.isNotBlank() && !onlineLoading, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                            if (onlineLoading) CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                            else Text("Search")
-                        }
-                        onlineError?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 8.dp)) }
-                        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 8.dp)) {
-                            items(audiusResults, key = { it.id }) { track -> AudiusTrackRow(track, onClick = { playAudius(track) }) }
+                        val matches = tracks.filter { it.title.contains(query, true) || it.artist.contains(query, true) || it.album.contains(query, true) }
+                        if (query.isNotBlank()) Text(matches.size.toString() + " matches", color = Muted, fontSize = 12.sp, modifier = Modifier.padding(top = 12.dp))
+                        TrackList(matches, currentUri, onPlay = { playTrack(it, tracks, player) })
+                        OutlinedButton(onClick = { openYouTubeMusic(context, query) }, modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Rounded.PlayCircle, null, modifier = Modifier.padding(end = 8.dp))
+                            Text(if (query.isBlank()) "Open YouTube Music" else "Search YouTube Music")
                         }
                     }
-                    "Providers" -> {
-                        ProvidersScreen(context)
+                    "YouTube Music" -> {
+                        YouTubeMusicScreen(context, query)
                     }
                     "Library" -> {
                         if (selectedImportedPlaylist != null) {
@@ -306,29 +262,16 @@ private fun SdsMusicApp(context: Context) {
                             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 items(selectedImportedPlaylist!!.songs) { song ->
                                     Row(Modifier.fillMaxWidth().background(Tile, RoundedCornerShape(14.dp)).clickable {
-                                        scope.launch {
-                                            onlineLoading = true
-                                            onlineError = null
-                                            try {
-                                                val searchText = listOf(song.title, song.artist).filter { it.isNotBlank() }.joinToString(" ")
-                                                val matches = AudiusApi.search(searchText)
-                                                val exact = matches.firstOrNull { it.title.equals(song.title, true) &&
-                                                    (song.artist.isBlank() || it.artist.contains(song.artist, true) || song.artist.contains(it.artist, true)) }
-                                                if (exact != null) playAudius(exact)
-                                                else onlineError = "No close Audius match for " + song.title + "."
-                                            } catch (error: Exception) { onlineError = error.message ?: "Couldn't match this song." }
-                                            finally { onlineLoading = false }
-                                        }
+                                        openYouTubeMusic(context, listOf(song.title, song.artist).filter { it.isNotBlank() }.joinToString(" "))
                                     }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                                         Column(Modifier.weight(1f)) {
                                             Text(song.title, fontWeight = FontWeight.SemiBold, maxLines = 1)
                                             Text(listOf(song.artist, song.album).filter { it.isNotBlank() }.joinToString(" · "), color = Ink.copy(alpha = .6f), fontSize = 12.sp, maxLines = 1)
                                         }
-                                        Icon(Icons.Rounded.Search, "Find playable match", tint = Accent)
+                                        Icon(Icons.Rounded.PlayCircle, "Find on YouTube Music", tint = Accent)
                                     }
                                 }
                             }
-                            onlineError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                         } else {
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                 Text("Your music", color = Ink.copy(alpha = .7f))
@@ -431,27 +374,6 @@ private fun SdsMusicApp(context: Context) {
     }
 }
 
-@Composable
-private fun AudiusTrackRow(track: AudiusTrack, onClick: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().background(Tile, RoundedCornerShape(14.dp)).clickable(onClick = onClick).padding(10.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        if (track.artwork.isNotBlank()) {
-            AsyncImage(model = track.artwork, contentDescription = null, modifier = Modifier.size(54.dp).background(Color.DarkGray, RoundedCornerShape(8.dp)), contentScale = ContentScale.Crop)
-        } else {
-            Box(Modifier.size(54.dp).background(Color(0xFF383838), RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
-                Icon(Icons.Rounded.MusicNote, null, tint = Accent)
-            }
-        }
-        Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-            Text(track.title, color = Ink, fontWeight = FontWeight.SemiBold, maxLines = 1)
-            Text(track.artist, color = Muted, fontSize = 12.sp, maxLines = 1)
-        }
-        Icon(Icons.Rounded.PlayArrow, "Play", tint = Accent, modifier = Modifier.padding(horizontal = 8.dp))
-    }
-}
-
 private fun playTrack(track: Track, tracks: List<Track>, player: ExoPlayer) {
     val index = tracks.indexOfFirst { it.uri == track.uri }.coerceAtLeast(0)
     player.setMediaItems(tracks.map { MediaItem.fromUri(it.uri) }, index, 0L)
@@ -492,57 +414,42 @@ private fun timeLabel(ms: Long): String {
     return "%d:%02d".format(seconds / 60, seconds % 60)
 }
  
-@Composable
-private fun ProvidersScreen(context: Context) {
-    Column(Modifier.fillMaxSize()) {
-        Text("Connect your music apps", color = Ink, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
-        Text("Open services installed on this device. Each service keeps its own sign-in and playback controls.", color = Muted, fontSize = 13.sp, lineHeight = 19.sp, modifier = Modifier.padding(top = 6.dp, bottom = 18.dp))
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
-            item { ProviderCard("Audius", "Built in · Stream open-catalogue tracks inside SDS-Music.", null, "audius") }
-            item { ProviderCard("YouTube Music", "Open YouTube Music on this device. Playback and account features stay in its official app.", "com.google.android.apps.youtube.music", "youtube") }
-            item { ProviderCard("JioSaavn", "Open JioSaavn on this device. Sign in and listen through the official app.", "com.jio.media.jiobeats", "saavn") }
-            item { ProviderCard("Spotify", "Open Spotify on this device. Your subscription and playback stay managed by Spotify.", "com.spotify.music", "spotify") }
-            item {
-                Text("About providers", color = Accent, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
-                Text("SDS-Music currently streams Audius tracks natively. Other providers are app shortcuts for now; they are not downloaded or extracted into SDS-Music.", color = Muted, fontSize = 12.sp, lineHeight = 18.sp, modifier = Modifier.padding(top = 5.dp))
-            }
-        }
+private fun openYouTubeMusic(context: Context, search: String = "") {
+    val encoded = Uri.encode(search.trim())
+    val url = if (encoded.isBlank()) "https://music.youtube.com/" else "https://music.youtube.com/search?q=$encoded"
+    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }.onFailure {
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=com.google.android.apps.youtube.music")))
     }
 }
 
 @Composable
-private fun ProviderCard(name: String, description: String, packageName: String?, kind: String) {
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val installed = packageName == null || runCatching {
-        context.packageManager.getPackageInfo(packageName, 0)
-    }.isSuccess
-    Row(Modifier.fillMaxWidth().background(Tile, RoundedCornerShape(20.dp)).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(48.dp).background(Color(0xFF292B2D), RoundedCornerShape(15.dp)), contentAlignment = Alignment.Center) {
-            Icon(when (kind) {
-                "youtube" -> Icons.Rounded.PlayCircle
-                "saavn" -> Icons.Rounded.LibraryMusic
-                "spotify" -> Icons.Rounded.GraphicEq
-                else -> Icons.Rounded.GraphicEq
-            }, null, tint = Accent, modifier = Modifier.size(26.dp))
-        }
-        Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-            Text(name, color = Ink, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-            Text(if (packageName == null) "Available in SDS-Music" else if (installed) "Installed on this device" else "Not installed", color = if (installed) Accent else Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 2.dp))
-            Text(description, color = Muted, fontSize = 11.sp, lineHeight = 15.sp, modifier = Modifier.padding(top = 5.dp))
-        }
-        if (packageName != null) {
+private fun YouTubeMusicScreen(context: Context, search: String) {
+    val packageName = "com.google.android.apps.youtube.music"
+    val installed = runCatching { context.packageManager.getPackageInfo(packageName, 0) }.isSuccess
+    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Text("YouTube Music", color = Ink, fontSize = 23.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
+        Text(
+            if (installed) "YouTube Music is installed. Open it to browse your library, playlists and downloads."
+            else "Install YouTube Music to use your account, playlists and official offline downloads.",
+            color = Muted, fontSize = 13.sp, lineHeight = 19.sp
+        )
+        Row(Modifier.fillMaxWidth().background(Tile, RoundedCornerShape(20.dp)).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(52.dp).background(Color(0xFF292B2D), RoundedCornerShape(15.dp)), contentAlignment = Alignment.Center) {
+                Icon(Icons.Rounded.PlayCircle, null, tint = Accent, modifier = Modifier.size(30.dp))
+            }
+            Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                Text("YouTube Music", color = Ink, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                Text(if (installed) "Installed on this device" else "Not installed", color = if (installed) Accent else Muted, fontSize = 11.sp)
+            }
             TextButton(onClick = {
-                val launch = context.packageManager.getLaunchIntentForPackage(packageName)
-                if (launch != null) context.startActivity(launch)
-                else {
-                    val market = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$packageName"))
-                    runCatching { context.startActivity(market) }.onFailure {
-                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=$packageName")))
-                    }
-                }
-            }) { Text(if (installed) "Open" else "Get", color = Accent, fontWeight = FontWeight.Bold) }
-        } else {
-            Text("READY", color = Accent, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                if (installed) openYouTubeMusic(context)
+                else context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=$packageName")))
+            }) { Text(if (installed) "Open" else "Install", color = Accent, fontWeight = FontWeight.Bold) }
         }
+        OutlinedButton(onClick = { openYouTubeMusic(context, search) }, modifier = Modifier.fillMaxWidth()) {
+            Icon(Icons.Rounded.Search, null, modifier = Modifier.padding(end = 8.dp))
+            Text(if (search.isBlank()) "Browse YouTube Music" else "Search current query")
+        }
+        Text("YouTube Music manages its own downloads and playback. SDS-Music keeps your imported audio in its separate local library.", color = Muted, fontSize = 12.sp, lineHeight = 18.sp)
     }
 }
