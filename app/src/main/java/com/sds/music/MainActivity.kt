@@ -30,13 +30,18 @@ import androidx.media3.exoplayer.ExoPlayer
 import kotlinx.coroutines.delay
 import org.json.JSONArray
 import org.json.JSONObject
+import com.sds.music.online.MusicBrainzApi
+import com.sds.music.online.RadioBrowserApi
+import com.sds.music.online.RecordingMatch
+import com.sds.music.online.RadioStation
+import kotlinx.coroutines.launch
 
 private val Paper = Color(0xFFB9B6AE)
 private val Ink = Color(0xFF302E2A)
 private val Tile = Color(0xFF89857D)
 private val Accent = Color(0xFFE8D8E2)
 
-data class Track(val uri: String, val title: String)
+data class Track(val uri: String, val title: String, val artist: String = "", val album: String = "", val year: String = "", val musicBrainzId: String = "")
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -51,14 +56,14 @@ private fun readTracks(context: Context): List<Track> {
         val array = JSONArray(raw)
         (0 until array.length()).map { i ->
             val item = array.getJSONObject(i)
-            Track(item.getString("uri"), item.getString("title"))
+            Track(item.getString("uri"), item.getString("title"), item.optString("artist"), item.optString("album"), item.optString("year"), item.optString("musicBrainzId"))
         }
     }.getOrDefault(emptyList())
 }
 
 private fun saveTracks(context: Context, tracks: List<Track>) {
     val array = JSONArray()
-    tracks.forEach { array.put(JSONObject().put("uri", it.uri).put("title", it.title)) }
+    tracks.forEach { array.put(JSONObject().put("uri", it.uri).put("title", it.title).put("artist", it.artist).put("album", it.album).put("year", it.year).put("musicBrainzId", it.musicBrainzId)) }
     context.getSharedPreferences("sds_music", Context.MODE_PRIVATE).edit().putString("tracks", array.toString()).apply()
 }
 
@@ -86,6 +91,32 @@ private fun SdsMusicApp(context: Context) {
     var loopB by remember { mutableLongStateOf(0L) }
     var loopEnabled by remember { mutableStateOf(false) }
     var showLoop by remember { mutableStateOf(false) }
+    var searchMode by remember { mutableStateOf("Library") }
+    var recordingResults by remember { mutableStateOf<List<RecordingMatch>>(emptyList()) }
+    var radioResults by remember { mutableStateOf<List<RadioStation>>(emptyList()) }
+    var onlineLoading by remember { mutableStateOf(false) }
+    var onlineError by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+
+    fun searchOnline() {
+        scope.launch {
+            onlineLoading = true
+            onlineError = null
+            try {
+                if (searchMode == "MusicBrainz") {
+                    recordingResults = MusicBrainzApi.searchRecordings(query)
+                    radioResults = emptyList()
+                } else {
+                    radioResults = RadioBrowserApi.searchStations(query)
+                    recordingResults = emptyList()
+                }
+            } catch (error: Exception) {
+                onlineError = error.message ?: "Could not reach the online service."
+            } finally {
+                onlineLoading = false
+            }
+        }
+    }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         val additions = uris.mapNotNull { uri ->
@@ -164,9 +195,65 @@ private fun SdsMusicApp(context: Context) {
                         else TrackList(tracks.take(5), currentUri, onPlay = { playTrack(it, tracks, player) })
                     }
                     "Search" -> {
-                        OutlinedTextField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth(), placeholder = { Text("Search your music") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, shape = RoundedCornerShape(18.dp), singleLine = true)
-                        val filtered = tracks.filter { it.title.contains(query, ignoreCase = true) }
-                        TrackList(filtered, currentUri, onPlay = { playTrack(it, tracks, player) })
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf("Library", "MusicBrainz", "Radio").forEach { mode ->
+                                FilterChip(selected = searchMode == mode, onClick = { searchMode = mode; onlineError = null }, label = { Text(mode) })
+                            }
+                        }
+                        OutlinedTextField(
+                            value = query, onValueChange = { query = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            placeholder = { Text(when (searchMode) { "MusicBrainz" -> "Track title or artist"; "Radio" -> "Station, genre, or country"; else -> "Search your music" }) },
+                            leadingIcon = { Icon(Icons.Rounded.Search, null) },
+                            shape = RoundedCornerShape(18.dp), singleLine = true
+                        )
+                        if (searchMode == "Library") {
+                            val filtered = tracks.filter { it.title.contains(query, ignoreCase = true) || it.artist.contains(query, ignoreCase = true) || it.album.contains(query, ignoreCase = true) }
+                            TrackList(filtered, currentUri, onPlay = { playTrack(it, tracks, player) })
+                        } else {
+                            Button(onClick = { searchOnline() }, enabled = query.isNotBlank() && !onlineLoading, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                                if (onlineLoading) CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                                else Text(if (searchMode == "MusicBrainz") "Find track metadata" else "Find radio stations")
+                            }
+                            onlineError?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 8.dp)) }
+                            if (searchMode == "MusicBrainz") {
+                                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 8.dp)) {
+                                    items(recordingResults, key = { it.id }) { match ->
+                                        Column(Modifier.fillMaxWidth().background(Tile.copy(alpha = .7f), RoundedCornerShape(16.dp)).padding(12.dp)) {
+                                            Text(match.title, color = Color.White, fontWeight = FontWeight.SemiBold)
+                                            Text(listOf(match.artist, match.release, match.year).filter { it.isNotBlank() }.joinToString(" · "), color = Color.White.copy(alpha = .75f), fontSize = 12.sp)
+                                            val localIndex = tracks.indexOfFirst { it.title.contains(query, true) || query.contains(it.title, true) }
+                                            if (localIndex >= 0) TextButton(onClick = {
+                                                tracks = tracks.toMutableList().also { list ->
+                                                    list[localIndex] = list[localIndex].copy(artist = match.artist, album = match.release, year = match.year, musicBrainzId = match.id)
+                                                }
+                                                saveTracks(context, tracks)
+                                            }) { Text("Apply to matching local track", color = Accent) }
+                                        }
+                                    }
+                                }
+                            } else {
+                                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 8.dp)) {
+                                    items(radioResults, key = { it.id }) { station ->
+                                        Row(Modifier.fillMaxWidth().background(Tile.copy(alpha = .7f), RoundedCornerShape(16.dp)).clickable {
+                                            player.setMediaItem(MediaItem.fromUri(station.streamUrl))
+                                            player.prepare()
+                                            player.play()
+                                            currentUri = station.streamUrl
+                                            currentTitle = station.name
+                                            tab = "Player"
+                                        }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Rounded.Radio, null, tint = Accent, modifier = Modifier.size(32.dp))
+                                            Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                                                Text(station.name, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                                                Text(listOf(station.country, station.codec, if (station.bitrate > 0) "${station.bitrate} kbps" else "").filter { it.isNotBlank() }.joinToString(" · "), color = Color.White.copy(alpha = .75f), fontSize = 11.sp)
+                                            }
+                                            Icon(Icons.Rounded.PlayArrow, "Play station", tint = Color.White)
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                     "Library" -> {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -240,7 +327,7 @@ private fun TrackList(tracks: List<Track>, currentUri: String?, onPlay: (Track) 
                 Box(Modifier.size(48.dp).background(Color(0xFF77736B), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.MusicNote, null, tint = Accent) }
                 Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
                     Text(track.title, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                    Text(if (track.uri == currentUri) "NOW PLAYING" else "LOCAL AUDIO", color = Color.White.copy(alpha = .7f), fontSize = 10.sp, letterSpacing = 1.sp)
+                    Text(if (track.uri == currentUri) "NOW PLAYING" else listOf(track.artist.ifBlank { "LOCAL AUDIO" }, track.album).filter { it.isNotBlank() }.joinToString(" · "), color = Color.White.copy(alpha = .7f), fontSize = 10.sp, letterSpacing = 1.sp, maxLines = 1)
                 }
                 if (onRemove != null) IconButton(onClick = { onRemove(track) }) { Icon(Icons.Rounded.Close, "Remove", tint = Color.White) }
                 else Icon(Icons.Rounded.PlayArrow, "Play", tint = Color.White)
