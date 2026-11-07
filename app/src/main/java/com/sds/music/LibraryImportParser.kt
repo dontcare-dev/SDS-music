@@ -43,7 +43,7 @@ object LibraryImportParser {
         fun index(vararg names: String) = headers.indexOfFirst { it in names }
         val titleIndex = index("trackname", "title", "song", "songtitle", "videotitle", "name")
         val artistIndex = index("artistname", "artistnames", "artist", "artists", "creator")
-        val albumIndex = index("albumname", "album", "release")
+        val albumIndex = index("albumname", "albumtitle", "album", "release")
         if (titleIndex < 0) return emptyList()
         return rows.drop(1).mapNotNull { row ->
             val title = row.getOrNull(titleIndex)?.trim().orEmpty()
