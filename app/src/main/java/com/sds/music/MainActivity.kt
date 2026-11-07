@@ -118,6 +118,12 @@ private fun SdsMusicApp(context: Context) {
     val player = remember { ExoPlayer.Builder(context).build() }
     var tracks by remember { mutableStateOf(readTracks(context)) }
     var importedPlaylists by remember { mutableStateOf(readImportedPlaylists(context)) }
+    var selectedImportedPlaylist by remember { mutableStateOf<ImportedPlaylist?>(null) }
+    var editingTrack by remember { mutableStateOf<Track?>(null) }
+    var editTitle by remember { mutableStateOf("") }
+    var editArtist by remember { mutableStateOf("") }
+    var editAlbum by remember { mutableStateOf("") }
+    var editYear by remember { mutableStateOf("") }
     var importMessage by remember { mutableStateOf<String?>(null) }
     var tab by remember { mutableStateOf("Home") }
     var currentUri by remember { mutableStateOf<String?>(null) }
@@ -272,30 +278,74 @@ private fun SdsMusicApp(context: Context) {
                         }
                     }
                     "Library" -> {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Text("Your music", color = Ink.copy(alpha = .7f))
-                            Row {
-                                TextButton(onClick = { playlistPicker.launch(arrayOf("text/*", "application/json", "text/csv")) }) { Text("Import playlist", color = Accent) }
-                                TextButton(onClick = { picker.launch(arrayOf("audio/*")) }) { Text("＋ Audio", color = Ink) }
-                            }
-                        }
-                        importMessage?.let { Text(it, color = Accent, fontSize = 12.sp) }
-                        importedPlaylists.forEach { playlist ->
-                            Row(Modifier.fillMaxWidth().background(Tile, RoundedCornerShape(12.dp)).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Rounded.QueueMusic, null, tint = Accent)
-                                Column(Modifier.weight(1f).padding(start = 10.dp)) {
-                                    Text(playlist.name, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                                    Text(playlist.songs.size.toString() + " songs · " + playlist.source, color = Ink.copy(alpha = .6f), fontSize = 11.sp)
+                        if (selectedImportedPlaylist != null) {
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(onClick = { selectedImportedPlaylist = null }) { Icon(Icons.Rounded.ArrowBack, "Back") }
+                                Column {
+                                    Text(selectedImportedPlaylist!!.name, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                                    Text(selectedImportedPlaylist!!.songs.size.toString() + " songs · " + selectedImportedPlaylist!!.source, color = Ink.copy(alpha = .6f), fontSize = 12.sp)
                                 }
                             }
+                            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                items(selectedImportedPlaylist!!.songs) { song ->
+                                    Row(Modifier.fillMaxWidth().background(Tile, RoundedCornerShape(14.dp)).clickable {
+                                        scope.launch {
+                                            onlineLoading = true
+                                            onlineError = null
+                                            try {
+                                                val searchText = listOf(song.title, song.artist).filter { it.isNotBlank() }.joinToString(" ")
+                                                val matches = AudiusApi.search(searchText)
+                                                val exact = matches.firstOrNull { it.title.equals(song.title, true) &&
+                                                    (song.artist.isBlank() || it.artist.contains(song.artist, true) || song.artist.contains(it.artist, true)) }
+                                                if (exact != null) playAudius(exact)
+                                                else onlineError = "No close Audius match for " + song.title + "."
+                                            } catch (error: Exception) { onlineError = error.message ?: "Couldn't match this song." }
+                                            finally { onlineLoading = false }
+                                        }
+                                    }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Column(Modifier.weight(1f)) {
+                                            Text(song.title, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                                            Text(listOf(song.artist, song.album).filter { it.isNotBlank() }.joinToString(" · "), color = Ink.copy(alpha = .6f), fontSize = 12.sp, maxLines = 1)
+                                        }
+                                        Icon(Icons.Rounded.Search, "Find playable match", tint = Accent)
+                                    }
+                                }
+                            }
+                            onlineError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                        } else {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                Text("Your music", color = Ink.copy(alpha = .7f))
+                                Row {
+                                    TextButton(onClick = { playlistPicker.launch(arrayOf("text/*", "application/json", "text/csv")) }) { Text("Import playlist", color = Accent) }
+                                    TextButton(onClick = { picker.launch(arrayOf("audio/*")) }) { Text("＋ Audio", color = Ink) }
+                                }
+                            }
+                            importMessage?.let { Text(it, color = Accent, fontSize = 12.sp) }
+                            importedPlaylists.forEach { playlist ->
+                                Row(Modifier.fillMaxWidth().background(Tile, RoundedCornerShape(12.dp)).clickable { selectedImportedPlaylist = playlist }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Rounded.QueueMusic, null, tint = Accent)
+                                    Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                                        Text(playlist.name, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                                        Text(playlist.songs.size.toString() + " songs · " + playlist.source, color = Ink.copy(alpha = .6f), fontSize = 11.sp)
+                                    }
+                                    Icon(Icons.Rounded.ChevronRight, null, tint = Ink.copy(alpha = .6f))
+                                }
+                                Spacer(Modifier.height(6.dp))
+                            }
+                            Text(tracks.size.toString() + " files on this device", color = Ink.copy(alpha = .6f), fontSize = 12.sp, modifier = Modifier.padding(vertical = 8.dp))
+                            if (tracks.isEmpty()) EmptyLibrary { picker.launch(arrayOf("audio/*")) }
+                            else TrackList(tracks, currentUri, onPlay = { playTrack(it, tracks, player) }, onEdit = { track ->
+                                editingTrack = track
+                                editTitle = track.title
+                                editArtist = track.artist
+                                editAlbum = track.album
+                                editYear = track.year
+                            }, onRemove = { track ->
+                                tracks = tracks.filterNot { it.uri == track.uri }
+                                saveTracks(context, tracks)
+                                if (currentUri == track.uri) { player.stop(); currentUri = null; currentTitle = "Nothing playing" }
+                            })
                         }
-                        Text(tracks.size.toString() + " files on this device", color = Ink.copy(alpha = .6f), fontSize = 12.sp, modifier = Modifier.padding(vertical = 8.dp))
-                        if (tracks.isEmpty()) EmptyLibrary { picker.launch(arrayOf("audio/*")) }
-                        else TrackList(tracks, currentUri, onPlay = { playTrack(it, tracks, player) }, onRemove = { track ->
-                            tracks = tracks.filterNot { it.uri == track.uri }
-                            saveTracks(context, tracks)
-                            if (currentUri == track.uri) { player.stop(); currentUri = null; currentTitle = "Nothing playing" }
-                        })
                     }
                     else -> {
                         Spacer(Modifier.height(34.dp))
@@ -320,6 +370,28 @@ private fun SdsMusicApp(context: Context) {
                 }
             }
         }
+        if (editingTrack != null) AlertDialog(
+            onDismissRequest = { editingTrack = null },
+            title = { Text("Edit track details") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(editTitle, { editTitle = it }, label = { Text("Title") }, singleLine = true)
+                    OutlinedTextField(editArtist, { editArtist = it }, label = { Text("Artist") }, singleLine = true)
+                    OutlinedTextField(editAlbum, { editAlbum = it }, label = { Text("Album") }, singleLine = true)
+                    OutlinedTextField(editYear, { editYear = it }, label = { Text("Year") }, singleLine = true)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val old = editingTrack!!
+                    tracks = tracks.map { if (it.uri == old.uri) old.copy(title = editTitle.ifBlank { old.title }, artist = editArtist, album = editAlbum, year = editYear) else it }
+                    saveTracks(context, tracks)
+                    if (currentUri == old.uri) currentTitle = editTitle.ifBlank { old.title }
+                    editingTrack = null
+                }) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { editingTrack = null }) { Text("Cancel") } }
+        )
         if (showLoop) AlertDialog(
             onDismissRequest = { showLoop = false },
             title = { Text("Loop Studio") },
@@ -371,7 +443,7 @@ private fun playTrack(track: Track, tracks: List<Track>, player: ExoPlayer) {
 }
 
 @Composable
-private fun TrackList(tracks: List<Track>, currentUri: String?, onPlay: (Track) -> Unit, onRemove: ((Track) -> Unit)? = null) {
+private fun TrackList(tracks: List<Track>, currentUri: String?, onPlay: (Track) -> Unit, onEdit: ((Track) -> Unit)? = null, onRemove: ((Track) -> Unit)? = null) {
     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 8.dp)) {
         items(tracks, key = { it.uri }) { track ->
             Row(Modifier.fillMaxWidth().background(Tile.copy(alpha = .7f), RoundedCornerShape(16.dp)).clickable { onPlay(track) }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -380,8 +452,9 @@ private fun TrackList(tracks: List<Track>, currentUri: String?, onPlay: (Track) 
                     Text(track.title, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1)
                     Text(if (track.uri == currentUri) "NOW PLAYING" else listOf(track.artist.ifBlank { "LOCAL AUDIO" }, track.album).filter { it.isNotBlank() }.joinToString(" · "), color = Color.White.copy(alpha = .7f), fontSize = 10.sp, letterSpacing = 1.sp, maxLines = 1)
                 }
+                if (onEdit != null) IconButton(onClick = { onEdit(track) }) { Icon(Icons.Rounded.Edit, "Edit details", tint = Accent) }
                 if (onRemove != null) IconButton(onClick = { onRemove(track) }) { Icon(Icons.Rounded.Close, "Remove", tint = Color.White) }
-                else Icon(Icons.Rounded.PlayArrow, "Play", tint = Color.White)
+                else if (onEdit == null) Icon(Icons.Rounded.PlayArrow, "Play", tint = Color.White)
             }
         }
     }
