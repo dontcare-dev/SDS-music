@@ -1,6 +1,7 @@
 package com.sds.music
 
 import android.content.Context
+import android.content.ComponentName
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -29,6 +30,9 @@ import androidx.compose.ui.unit.sp
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
+import java.util.concurrent.Executor
 import kotlinx.coroutines.delay
 import org.json.JSONArray
 import org.json.JSONObject
@@ -112,7 +116,25 @@ private fun saveImportedPlaylists(context: Context, playlists: List<ImportedPlay
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SdsMusicApp(context: Context) {
-    val player = remember { ExoPlayer.Builder(context).build() }
+    val localFallbackPlayer = remember { ExoPlayer.Builder(context).build() }
+    val controllerFuture = remember {
+        MediaController.Builder(context, SessionToken(context, ComponentName(context, com.sds.music.player.MusicService::class.java))).buildAsync()
+    }
+    var servicePlayer by remember { mutableStateOf<MediaController?>(null) }
+    val player: Player = servicePlayer ?: localFallbackPlayer
+
+    LaunchedEffect(controllerFuture) {
+        runCatching { context.startService(Intent(context, com.sds.music.player.MusicService::class.java)) }
+        controllerFuture.addListener({
+            servicePlayer = runCatching { controllerFuture.get() }.getOrNull()
+        }, Executor { command -> command.run() })
+    }
+    DisposableEffect(controllerFuture) {
+        onDispose {
+            localFallbackPlayer.release()
+            MediaController.releaseFuture(controllerFuture)
+        }
+    }
     var tracks by remember { mutableStateOf(readTracks(context)) }
     var importedPlaylists by remember { mutableStateOf(readImportedPlaylists(context)) }
     var selectedImportedPlaylist by remember { mutableStateOf<ImportedPlaylist?>(null) }
@@ -171,7 +193,7 @@ private fun SdsMusicApp(context: Context) {
             }
         }
         player.addListener(listener)
-        onDispose { player.removeListener(listener); player.release() }
+        onDispose { player.removeListener(listener) }
     }
 
     LaunchedEffect(player) {
@@ -374,7 +396,7 @@ private fun SdsMusicApp(context: Context) {
     }
 }
 
-private fun playTrack(track: Track, tracks: List<Track>, player: ExoPlayer) {
+private fun playTrack(track: Track, tracks: List<Track>, player: Player) {
     val index = tracks.indexOfFirst { it.uri == track.uri }.coerceAtLeast(0)
     player.setMediaItems(tracks.map { MediaItem.fromUri(it.uri) }, index, 0L)
     player.prepare()
