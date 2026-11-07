@@ -30,16 +30,16 @@ import androidx.media3.exoplayer.ExoPlayer
 import kotlinx.coroutines.delay
 import org.json.JSONArray
 import org.json.JSONObject
-import com.sds.music.online.MusicBrainzApi
-import com.sds.music.online.RadioBrowserApi
-import com.sds.music.online.RecordingMatch
-import com.sds.music.online.RadioStation
+import com.sds.music.online.AudiusApi
+import com.sds.music.online.AudiusTrack
+import coil.compose.AsyncImage
+import androidx.compose.ui.layout.ContentScale
 import kotlinx.coroutines.launch
 
-private val Paper = Color(0xFFB9B6AE)
-private val Ink = Color(0xFF302E2A)
-private val Tile = Color(0xFF89857D)
-private val Accent = Color(0xFFE8D8E2)
+private val Paper = Color(0xFF121212)
+private val Ink = Color(0xFFF5F5F5)
+private val Tile = Color(0xFF242424)
+private val Accent = Color(0xFFB9B6AE)
 
 data class Track(val uri: String, val title: String, val artist: String = "", val album: String = "", val year: String = "", val musicBrainzId: String = "")
 
@@ -91,31 +91,36 @@ private fun SdsMusicApp(context: Context) {
     var loopB by remember { mutableLongStateOf(0L) }
     var loopEnabled by remember { mutableStateOf(false) }
     var showLoop by remember { mutableStateOf(false) }
-    var searchMode by remember { mutableStateOf("Library") }
-    var recordingResults by remember { mutableStateOf<List<RecordingMatch>>(emptyList()) }
-    var radioResults by remember { mutableStateOf<List<RadioStation>>(emptyList()) }
+    var audiusResults by remember { mutableStateOf<List<AudiusTrack>>(emptyList()) }
+    var trending by remember { mutableStateOf<List<AudiusTrack>>(emptyList()) }
     var onlineLoading by remember { mutableStateOf(false) }
     var onlineError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
-    fun searchOnline() {
+    LaunchedEffect(Unit) {
+        onlineLoading = true
+        try { trending = AudiusApi.trending() }
+        catch (error: Exception) { onlineError = error.message ?: "Couldn't load music." }
+        finally { onlineLoading = false }
+    }
+
+    fun searchAudius() {
         scope.launch {
             onlineLoading = true
             onlineError = null
-            try {
-                if (searchMode == "MusicBrainz") {
-                    recordingResults = MusicBrainzApi.searchRecordings(query)
-                    radioResults = emptyList()
-                } else {
-                    radioResults = RadioBrowserApi.searchStations(query)
-                    recordingResults = emptyList()
-                }
-            } catch (error: Exception) {
-                onlineError = error.message ?: "Could not reach the online service."
-            } finally {
-                onlineLoading = false
-            }
+            try { audiusResults = AudiusApi.search(query) }
+            catch (error: Exception) { onlineError = error.message ?: "Search failed." }
+            finally { onlineLoading = false }
         }
+    }
+
+    fun playAudius(track: AudiusTrack) {
+        player.setMediaItem(MediaItem.fromUri(AudiusApi.streamUrl(track.id)))
+        player.prepare()
+        player.play()
+        currentUri = AudiusApi.streamUrl(track.id)
+        currentTitle = track.title
+        tab = "Player"
     }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
@@ -152,11 +157,11 @@ private fun SdsMusicApp(context: Context) {
         }
     }
 
-    MaterialTheme(colorScheme = lightColorScheme(primary = Ink, onPrimary = Paper, background = Paper, surface = Paper, onSurface = Ink)) {
+    MaterialTheme(colorScheme = darkColorScheme(primary = Accent, onPrimary = Paper, background = Paper, surface = Tile, onSurface = Ink)) {
         Scaffold(
             containerColor = Paper,
             bottomBar = {
-                NavigationBar(containerColor = Color(0xFFA9A69E), contentColor = Ink) {
+                NavigationBar(containerColor = Color(0xFF1D1D1D), contentColor = Ink) {
                     listOf("Home", "Search", "Library", "Player").forEach { label ->
                         val icon = when (label) {
                             "Home" -> Icons.Rounded.Home
@@ -173,86 +178,42 @@ private fun SdsMusicApp(context: Context) {
                 Row(Modifier.fillMaxWidth().padding(top = 18.dp, bottom = 16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Column {
                         Text("SDS-MUSIC", fontSize = 12.sp, letterSpacing = 3.sp, fontWeight = FontWeight.Bold)
-                        Text(when (tab) { "Home" -> "Your little music corner."; "Search" -> "Find your sound."; "Library" -> "Your collection."; else -> "Now playing." }, fontSize = 25.sp, fontWeight = FontWeight.SemiBold)
+                        Text(when (tab) { "Home" -> "Discover"; "Search" -> "Search"; "Library" -> "Your library"; else -> "Now playing" }, fontSize = 25.sp, fontWeight = FontWeight.SemiBold)
                     }
                     IconButton(onClick = { picker.launch(arrayOf("audio/*")) }) { Icon(Icons.Rounded.AddCircle, "Import audio", modifier = Modifier.size(30.dp)) }
                 }
                 when (tab) {
                     "Home" -> {
-                        Box(Modifier.fillMaxWidth().padding(vertical = 8.dp).height(158.dp).background(Tile, RoundedCornerShape(24.dp)).padding(18.dp)) {
-                            Column(Modifier.align(Alignment.BottomStart)) {
-                                Text("YOUR OFFLINE LIBRARY", color = Color.White, fontSize = 11.sp, letterSpacing = 2.sp)
-                                Text("A soundtrack of you.", color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Bold)
-                                Text("${tracks.size} tracks imported", color = Color.White.copy(alpha = .8f), fontSize = 12.sp)
+                        Row(Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 14.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text("Made for listening", color = Ink.copy(alpha = .65f), fontSize = 14.sp)
+                            TextButton(onClick = { tab = "Library" }) { Text("Library", color = Accent) }
+                        }
+                        if (trending.isNotEmpty()) {
+                            Text("Trending", fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 10.dp))
+                            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 16.dp)) {
+                                items(trending, key = { it.id }) { track -> AudiusTrackRow(track, onClick = { playAudius(track) }) }
                             }
-                            Text("✧", Modifier.align(Alignment.TopEnd), color = Accent, fontSize = 34.sp)
+                        } else if (onlineLoading) {
+                            Box(Modifier.fillMaxWidth().padding(36.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Accent) }
+                        } else {
+                            Text(onlineError ?: "No tracks available right now.", color = Ink.copy(alpha = .65f))
                         }
-                        Row(Modifier.fillMaxWidth().padding(vertical = 14.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Text("RECENTLY ADDED", fontSize = 11.sp, letterSpacing = 2.sp)
-                            TextButton(onClick = { tab = "Library" }) { Text("View all", color = Ink) }
-                        }
-                        if (tracks.isEmpty()) EmptyLibrary { picker.launch(arrayOf("audio/*")) }
-                        else TrackList(tracks.take(5), currentUri, onPlay = { playTrack(it, tracks, player) })
                     }
                     "Search" -> {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            listOf("Library", "MusicBrainz", "Radio").forEach { mode ->
-                                FilterChip(selected = searchMode == mode, onClick = { searchMode = mode; onlineError = null }, label = { Text(mode) })
-                            }
-                        }
                         OutlinedTextField(
                             value = query, onValueChange = { query = it },
                             modifier = Modifier.fillMaxWidth(),
-                            placeholder = { Text(when (searchMode) { "MusicBrainz" -> "Track title or artist"; "Radio" -> "Station, genre, or country"; else -> "Search your music" }) },
+                            placeholder = { Text("Songs, artists") },
                             leadingIcon = { Icon(Icons.Rounded.Search, null) },
-                            shape = RoundedCornerShape(18.dp), singleLine = true
+                            shape = RoundedCornerShape(28.dp), singleLine = true
                         )
-                        if (searchMode == "Library") {
-                            val filtered = tracks.filter { it.title.contains(query, ignoreCase = true) || it.artist.contains(query, ignoreCase = true) || it.album.contains(query, ignoreCase = true) }
-                            TrackList(filtered, currentUri, onPlay = { playTrack(it, tracks, player) })
-                        } else {
-                            Button(onClick = { searchOnline() }, enabled = query.isNotBlank() && !onlineLoading, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                                if (onlineLoading) CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                                else Text(if (searchMode == "MusicBrainz") "Find track metadata" else "Find radio stations")
-                            }
-                            onlineError?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 8.dp)) }
-                            if (searchMode == "MusicBrainz") {
-                                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 8.dp)) {
-                                    items(recordingResults, key = { it.id }) { match ->
-                                        Column(Modifier.fillMaxWidth().background(Tile.copy(alpha = .7f), RoundedCornerShape(16.dp)).padding(12.dp)) {
-                                            Text(match.title, color = Color.White, fontWeight = FontWeight.SemiBold)
-                                            Text(listOf(match.artist, match.release, match.year).filter { it.isNotBlank() }.joinToString(" · "), color = Color.White.copy(alpha = .75f), fontSize = 12.sp)
-                                            val localIndex = tracks.indexOfFirst { it.title.contains(query, true) || query.contains(it.title, true) }
-                                            if (localIndex >= 0) TextButton(onClick = {
-                                                tracks = tracks.toMutableList().also { list ->
-                                                    list[localIndex] = list[localIndex].copy(artist = match.artist, album = match.release, year = match.year, musicBrainzId = match.id)
-                                                }
-                                                saveTracks(context, tracks)
-                                            }) { Text("Apply to matching local track", color = Accent) }
-                                        }
-                                    }
-                                }
-                            } else {
-                                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 8.dp)) {
-                                    items(radioResults, key = { it.id }) { station ->
-                                        Row(Modifier.fillMaxWidth().background(Tile.copy(alpha = .7f), RoundedCornerShape(16.dp)).clickable {
-                                            player.setMediaItem(MediaItem.fromUri(station.streamUrl))
-                                            player.prepare()
-                                            player.play()
-                                            currentUri = station.streamUrl
-                                            currentTitle = station.name
-                                            tab = "Player"
-                                        }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                            Icon(Icons.Rounded.Radio, null, tint = Accent, modifier = Modifier.size(32.dp))
-                                            Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                                                Text(station.name, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                                                Text(listOf(station.country, station.codec, if (station.bitrate > 0) "${station.bitrate} kbps" else "").filter { it.isNotBlank() }.joinToString(" · "), color = Color.White.copy(alpha = .75f), fontSize = 11.sp)
-                                            }
-                                            Icon(Icons.Rounded.PlayArrow, "Play station", tint = Color.White)
-                                        }
-                                    }
-                                }
-                            }
+                        Button(onClick = { searchAudius() }, enabled = query.isNotBlank() && !onlineLoading, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                            if (onlineLoading) CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                            else Text("Search")
+                        }
+                        onlineError?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(vertical = 8.dp)) }
+                        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(vertical = 8.dp)) {
+                            items(audiusResults, key = { it.id }) { track -> AudiusTrackRow(track, onClick = { playAudius(track) }) }
                         }
                     }
                     "Library" -> {
@@ -273,7 +234,7 @@ private fun SdsMusicApp(context: Context) {
                             Text("♫", fontSize = 96.sp, color = Accent)
                         }
                         Text(currentTitle, Modifier.fillMaxWidth().padding(top = 24.dp), fontSize = 23.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                        Text("LOCAL AUDIO", color = Ink.copy(alpha = .6f), fontSize = 11.sp, letterSpacing = 2.sp)
+                        Text("SDS-MUSIC", color = Ink.copy(alpha = .55f), fontSize = 11.sp, letterSpacing = 2.sp)
                         Slider(value = if (duration > 0) position.toFloat().coerceIn(0f, duration.toFloat()) else 0f, onValueChange = { player.seekTo(it.toLong()) }, valueRange = 0f..(duration.coerceAtLeast(1L).toFloat()), colors = SliderDefaults.colors(thumbColor = Ink, activeTrackColor = Ink))
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text(timeLabel(position), fontSize = 11.sp); Text(timeLabel(duration), fontSize = 11.sp)
@@ -309,6 +270,27 @@ private fun SdsMusicApp(context: Context) {
             confirmButton = { TextButton(onClick = { if (loopB > loopA) player.seekTo(loopA); showLoop = false }) { Text("Done") } },
             dismissButton = { TextButton(onClick = { loopEnabled = false; showLoop = false }) { Text("Cancel") } }
         )
+    }
+}
+
+@Composable
+private fun AudiusTrackRow(track: AudiusTrack, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().background(Tile, RoundedCornerShape(14.dp)).clickable(onClick = onClick).padding(10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (track.artwork.isNotBlank()) {
+            AsyncImage(model = track.artwork, contentDescription = null, modifier = Modifier.size(54.dp).background(Color.DarkGray, RoundedCornerShape(8.dp)), contentScale = ContentScale.Crop)
+        } else {
+            Box(Modifier.size(54.dp).background(Color(0xFF383838), RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
+                Icon(Icons.Rounded.MusicNote, null, tint = Accent)
+            }
+        }
+        Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+            Text(track.title, color = Ink, fontWeight = FontWeight.SemiBold, maxLines = 1)
+            Text(track.artist, color = Ink.copy(alpha = .6f), fontSize = 12.sp, maxLines = 1)
+        }
+        Text("▶", color = Accent, modifier = Modifier.padding(horizontal = 8.dp))
     }
 }
 
