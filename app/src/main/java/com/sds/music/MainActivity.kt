@@ -210,11 +210,11 @@ private fun SdsMusicApp(context: Context) {
             containerColor = Paper,
             bottomBar = {
                 NavigationBar(containerColor = Color(0xFF1D1D1D), contentColor = Ink) {
-                    listOf("Home", "Search", "YouTube Music", "Library", "Player").forEach { label ->
+                    listOf("Home", "Search", "Plugins", "Library", "Player").forEach { label ->
                         val icon = when (label) {
                             "Home" -> Icons.Rounded.Home
                             "Search" -> Icons.Rounded.Search
-                            "YouTube Music" -> Icons.Rounded.PlayCircle
+                            "Plugins" -> Icons.Rounded.Extension
                             "Library" -> Icons.Rounded.LibraryMusic
                             else -> Icons.Rounded.GraphicEq
                         }
@@ -231,7 +231,7 @@ private fun SdsMusicApp(context: Context) {
                         }
                         Column {
                             Text("SDS MUSIC", fontSize = 11.sp, letterSpacing = 2.8.sp, fontWeight = FontWeight.Bold, color = Muted)
-                            Text(when (tab) { "Home" -> "Discover"; "Search" -> "Search"; "YouTube Music" -> "YouTube Music"; "Library" -> "Your library"; else -> "Now playing" }, fontSize = 25.sp, fontWeight = FontWeight.Bold)
+                            Text(when (tab) { "Home" -> "Discover"; "Search" -> "Search"; "Plugins" -> "Plugins"; "Library" -> "Your library"; else -> "Now playing" }, fontSize = 25.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                     IconButton(onClick = { picker.launch(arrayOf("audio/*")) }) { Icon(Icons.Rounded.AddCircle, "Import audio", modifier = Modifier.size(30.dp)) }
@@ -269,8 +269,14 @@ private fun SdsMusicApp(context: Context) {
                             Text(if (query.isBlank()) "Open YouTube Music" else "Search YouTube Music")
                         }
                     }
-                    "YouTube Music" -> {
-                        YouTubeMusicScreen(context, query)
+                    "Plugins" -> {
+                        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Text("Provider plugins", color = Ink, fontSize = 23.sp, fontWeight = FontWeight.Bold)
+                            Text("Manage music provider extensions for SDS-Music.", color = Muted, fontSize = 13.sp)
+                            Text("INSTALLED", color = Muted, fontSize = 10.sp, letterSpacing = 2.sp)
+                            Text("Local library · Built in", color = Ink, fontWeight = FontWeight.SemiBold)
+                            Text("YouTube Music · External app", color = Muted, fontSize = 12.sp)
+                        }
                     }
                     "Library" -> {
                         if (selectedImportedPlaylist != null) {
