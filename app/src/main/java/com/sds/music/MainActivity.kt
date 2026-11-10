@@ -34,6 +34,9 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import java.util.concurrent.Executor
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -145,6 +148,10 @@ private fun SdsMusicApp(context: Context) {
     var editYear by remember { mutableStateOf("") }
     var importMessage by remember { mutableStateOf<String?>(null) }
     var tab by remember { mutableStateOf("Home") }
+    var plugins by remember { mutableStateOf(PluginManager.installed(context)) }
+    var pluginUrl by remember { mutableStateOf("") }
+    var pluginMessage by remember { mutableStateOf<String?>(null) }
+    val pluginScope = rememberCoroutineScope()
     var currentUri by remember { mutableStateOf<String?>(null) }
     var currentTitle by remember { mutableStateOf("Nothing playing") }
     var playing by remember { mutableStateOf(false) }
@@ -155,7 +162,18 @@ private fun SdsMusicApp(context: Context) {
     var loopB by remember { mutableLongStateOf(0L) }
     var loopEnabled by remember { mutableStateOf(false) }
     var showLoop by remember { mutableStateOf(false) }
-        val playlistPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        val pluginPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            runCatching {
+                val raw = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() } ?: error("Could not read plugin package.")
+                val installed = PluginManager.install(context, raw)
+                plugins = PluginManager.installed(context)
+                pluginMessage = "Installed " + installed.name
+            }.onFailure { pluginMessage = it.message ?: "Install failed." }
+        }
+    }
+
+    val playlistPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             runCatching {
                 val filename = context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
@@ -272,10 +290,39 @@ private fun SdsMusicApp(context: Context) {
                     "Plugins" -> {
                         Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text("Provider plugins", color = Ink, fontSize = 23.sp, fontWeight = FontWeight.Bold)
-                            Text("Manage music provider extensions for SDS-Music.", color = Muted, fontSize = 13.sp)
-                            Text("INSTALLED", color = Muted, fontSize = 10.sp, letterSpacing = 2.sp)
-                            Text("Local library · Built in", color = Ink, fontWeight = FontWeight.SemiBold)
-                            Text("YouTube Music · External app", color = Muted, fontSize = 12.sp)
+                            Text("Install providers from a package URL or local file.", color = Muted, fontSize = 13.sp)
+                            OutlinedTextField(value = pluginUrl, onValueChange = { pluginUrl = it }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("HTTPS plugin URL") })
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(onClick = {
+                                    pluginScope.launch {
+                                        pluginMessage = "Installing…"
+                                        runCatching {
+                                            val raw = withContext(Dispatchers.IO) { PluginManager.downloadPackage(pluginUrl.trim()) }
+                                            val item = PluginManager.install(context, raw)
+                                            plugins = PluginManager.installed(context)
+                                            pluginMessage = "Installed " + item.name
+                                            pluginUrl = ""
+                                        }.onFailure { pluginMessage = it.message ?: "Install failed." }
+                                    }
+                                }, enabled = pluginUrl.startsWith("https://")) { Text("Install URL") }
+                                OutlinedButton(onClick = { pluginPicker.launch(arrayOf("application/json", "application/octet-stream", "*/*")) }) { Text("Upload file") }
+                            }
+                            pluginMessage?.let { Text(it, color = Accent, fontSize = 12.sp) }
+                            Text("INSTALLED PROVIDERS", color = Muted, fontSize = 10.sp, letterSpacing = 2.sp)
+                            if (plugins.isEmpty()) Text("No provider packages installed.", color = Muted, fontSize = 13.sp)
+                            plugins.forEach { item ->
+                                Row(Modifier.fillMaxWidth().background(Tile, RoundedCornerShape(14.dp)).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text(item.name, color = Ink, fontWeight = FontWeight.SemiBold)
+                                        Text(item.type.uppercase() + " · v" + item.version, color = Muted, fontSize = 11.sp)
+                                        Text(item.description, color = Muted, fontSize = 11.sp)
+                                    }
+                                    IconButton(onClick = { PluginManager.remove(context, item.id); plugins = PluginManager.installed(context) }) {
+                                        Icon(Icons.Rounded.DeleteOutline, "Remove", tint = Muted)
+                                    }
+                                }
+                            }
+                            Text("Only install packages from sources you trust. Spotube .smplug files are not directly compatible.", color = Muted, fontSize = 11.sp)
                         }
                     }
                     "Library" -> {
