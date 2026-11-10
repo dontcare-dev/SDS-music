@@ -40,11 +40,11 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
-private val Paper = Color(0xFF101112)
-private val Ink = Color(0xFFF4F2EE)
-private val Tile = Color(0xFF1B1D1F)
-private val Accent = Color(0xFFC9C2B5)
-private val Muted = Color(0xFF96938D)
+private val Paper = Color(0xFF0B0B0C)
+private val Ink = Color(0xFFF7F4EF)
+private val Tile = Color(0xFF191817)
+private val Accent = Color(0xFFD4C1A3)
+private val Muted = Color(0xFF9C9489)
 
 data class Track(val uri: String, val title: String, val artist: String = "", val album: String = "", val year: String = "", val musicBrainzId: String = "")
 
@@ -227,7 +227,7 @@ private fun SdsMusicApp(context: Context) {
         Scaffold(
             containerColor = Paper,
             bottomBar = {
-                NavigationBar(containerColor = Color(0xFF1D1D1D), contentColor = Ink) {
+                NavigationBar(containerColor = Color(0xFF121212), contentColor = Ink) {
                     listOf("Home", "Search", "Plugins", "Library", "Player").forEach { label ->
                         val icon = when (label) {
                             "Home" -> Icons.Rounded.Home
@@ -248,7 +248,7 @@ private fun SdsMusicApp(context: Context) {
                             Icon(Icons.Rounded.GraphicEq, null, tint = Paper, modifier = Modifier.size(25.dp))
                         }
                         Column {
-                            Text("SDS MUSIC", fontSize = 11.sp, letterSpacing = 2.8.sp, fontWeight = FontWeight.Bold, color = Muted)
+                            Text("SILVER DEV STUDIOS", fontSize = 9.sp, letterSpacing = 2.2.sp, fontWeight = FontWeight.Bold, color = Muted)
                             Text(when (tab) { "Home" -> "Discover"; "Search" -> "Search"; "Plugins" -> "Plugins"; "Library" -> "Your library"; else -> "Now playing" }, fontSize = 25.sp, fontWeight = FontWeight.Bold)
                         }
                     }
